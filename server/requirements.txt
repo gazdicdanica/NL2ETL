@@ -1,3 +1,5 @@
 fastapi[standard]
 groq
+openpyxl
+pandas
 pre-commit

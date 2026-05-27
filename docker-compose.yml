@@ -1,0 +1,26 @@
+services:
+
+  app:
+    build: ./server
+    container_name: nl2etl_app
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./input:/app/input
+      - ./output:/app/output
+      - /var/eun/docker.sock:/var/run/docker.sock
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
+      - INPUT_DIR=/app/input
+      - OUTPUT_DIR=/app/output
+      - SANDBOX_IMAGE=nl2etl_sandbox
+    depends_on:
+      sandbox:
+        condition: service_completed_successfully
+
+  sandbox:
+    build: ./sandbox
+    image: nl2etl_sandbox
+    container_name: nl2etl_sandbox_builder
+    command: echo "Sandbox container is running"

@@ -1,0 +1,139 @@
+import json
+
+import pandas as pd
+from .groq import client
+from pathlib import Path
+
+
+def infer_schema(filename: str) -> dict:
+
+    input_dir = (Path(__file__).parent / "../input").resolve()
+
+    filepath = input_dir / filename
+    df = pd.read_csv(filepath)
+
+    return {
+        "filename": filename,
+        "columns": [
+            {
+                "name": col,
+                "dtype": str(df[col].dtype),
+                "sample_values": df[col].dropna().head(n=3).tolist(),
+            }
+            for col in df.columns
+        ],
+        "row_count": len(df),
+    }
+
+
+def _build_schema_str(schemas: list[dict]) -> str:
+    schema_str = ""
+    for schema in schemas:
+        schema_str += f"\nFile: {schema['filename']}\nColumns:\n"
+        for col in schema["columns"]:
+            schema_str += (
+                f"   - {col['name']} {col['dtype']}  e.g. {col['sample_values']}\n"
+            )
+
+    return schema_str
+
+
+def _build_planning_prompt(nl_prompt: str, schemas: list[dict]) -> str:
+    schema_str = _build_schema_str(schemas)
+
+    return f"""
+### Context
+The user has these datasources available:
+{schema_str}
+
+### Instructions
+- use EXACT column names from the schema above
+- Map user terms to actual column names in column_mappings
+- If unsure about a column mapping add it to ambiguities
+- Return ONLY the JSON, no explanation
+- No extra prose
+
+### Input
+"{nl_prompt}"
+
+### Example output
+Return only a valid JSON object with following structure:
+{{
+    "inputs": [
+        {{"alias": "df1", "filename": "sales.csv"}}
+    ],
+    "column_mappings": [
+        {{"user_term": "revenue", "resolved_column": "rev", "confidence": "high}}
+    ],
+    "steps" [
+        {{"type": "aggregate", "group_by": "reg", "agg": "sum", "column": "rev", "output_alias": "total_revenue"}}
+    ],
+    "outputs": [
+        {{"filename": "output.xlsx", "format": "excel"}}
+    ],
+    "ambiguities": []
+}}
+
+"""
+
+
+def _generate_system_role_planning_prompt() -> str:
+    return "You are an ETL pipeline planner."
+
+
+def _generate_system_role_coding_prompt() -> str:
+    return "You are an ETL code generator. Generate a Python script using only Pandas."
+
+
+def generate_plan(nl_prompt: str, schemas: list[dict]) -> dict:
+    prompt = _build_planning_prompt(nl_prompt, schemas)
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": _generate_system_role_planning_prompt()},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0,
+    )
+
+    raw = response.choices[0].message.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    return json.loads(raw)
+
+
+def build_code_prompt(plan: dict, schemas: list[dict]) -> str:
+    return f"""
+Pipeline plan:
+{json.dumps(plan, indent=2)}
+
+Rules:
+- Read all input files from /input/ directory
+- Write all output files to /output/ directory
+- Use ONLY pandas, os (for paths only)
+- Do NOT use subprocess, eval, exec, requests, socket
+- Do NOT read or write outside /input/ and /output/
+- Print row counts after each major step
+- Return ONLY the Python code, no explanation
+"""
+
+
+def generate_code(plan: dict, schemas: list[dict]) -> str:
+    prompt = build_code_prompt(plan, schemas)
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": _generate_system_role_coding_prompt()},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0,
+    )
+    raw = response.choices[0].message.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("python"):
+            raw = raw[6:]
+        raw = raw.rsplit("```", 1)[0]
+    return raw.strip()

@@ -210,3 +210,5 @@ sketch
 # End of https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,react
 
 .env
+input/
+output/
