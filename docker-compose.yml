@@ -1,5 +1,4 @@
 services:
-
   app:
     build: ./server
     container_name: nl2etl_app
@@ -8,7 +7,9 @@ services:
     volumes:
       - ./input:/app/input
       - ./output:/app/output
-      - /var/eun/docker.sock:/var/run/docker.sock
+      - ./server:/app
+      - shared_data:/shared
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - GROQ_API_KEY=${GROQ_API_KEY}
       - GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
@@ -24,3 +25,7 @@ services:
     image: nl2etl_sandbox
     container_name: nl2etl_sandbox_builder
     command: echo "Sandbox container is running"
+    volumes:
+      - shared_data:/shared
+volumes:
+  shared_data:

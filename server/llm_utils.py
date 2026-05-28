@@ -1,15 +1,18 @@
 import json
+import os
 
 import pandas as pd
 from .groq import client
 from pathlib import Path
 
+INPUT_DIR = Path(os.environ.get("INPUT_DIR", "/app/input"))
+OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", "/app/output"))
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+
 
 def infer_schema(filename: str) -> dict:
 
-    input_dir = (Path(__file__).parent / "../input").resolve()
-
-    filepath = input_dir / filename
+    filepath = INPUT_DIR / filename
     df = pd.read_csv(filepath)
 
     return {
@@ -88,7 +91,7 @@ def _generate_system_role_coding_prompt() -> str:
 def generate_plan(nl_prompt: str, schemas: list[dict]) -> dict:
     prompt = _build_planning_prompt(nl_prompt, schemas)
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model=GROQ_MODEL,
         messages=[
             {"role": "system", "content": _generate_system_role_planning_prompt()},
             {"role": "user", "content": prompt},
@@ -110,20 +113,21 @@ Pipeline plan:
 {json.dumps(plan, indent=2)}
 
 Rules:
-- Read all input files from /input/ directory
-- Write all output files to /output/ directory
+- Read all input files from {INPUT_DIR} directory
+- Write all output files to {OUTPUT_DIR} directory
 - Use ONLY pandas, os (for paths only)
 - Do NOT use subprocess, eval, exec, requests, socket
-- Do NOT read or write outside /input/ and /output/
+- Do NOT read or write outside {INPUT_DIR} and {OUTPUT_DIR}
 - Print row counts after each major step
 - Return ONLY the Python code, no explanation
+- Python code MUST contain a __main__ module that executes the pipeline when run
 """
 
 
 def generate_code(plan: dict, schemas: list[dict]) -> str:
     prompt = build_code_prompt(plan, schemas)
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model=GROQ_MODEL,
         messages=[
             {"role": "system", "content": _generate_system_role_coding_prompt()},
             {"role": "user", "content": prompt},

@@ -1,9 +1,14 @@
 import json
-from fastapi import FastAPI
+import os
+from fastapi import FastAPI, Response
+
+from .execution_utils import execute_in_docker
 from .model.request import RunPOC
 from pathlib import Path
 
-from .utils import infer_schema, generate_plan, generate_code
+from .llm_utils import infer_schema, generate_plan, generate_code
+
+OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", "/app/output"))
 
 app = FastAPI()
 
@@ -13,8 +18,8 @@ def read_root():
     return {"Hello": "World"}
 
 
-@app.post("/")
-def run_poc(run_poc: RunPOC) -> dict:
+@app.post("/", status_code=200)
+def run_poc(run_poc: RunPOC, response: Response) -> dict:
 
     schemas = [infer_schema(f) for f in run_poc.input_files]
     print(f"Schemas inferred: {[s['filename'] for s in schemas]}")
@@ -29,11 +34,15 @@ def run_poc(run_poc: RunPOC) -> dict:
     code = generate_code(plan, schemas)
     print(f"\nGenerated code:\n{code}")
 
-    scripts_dir = (Path(__file__).parent / "../output").resolve()
-    file_path = scripts_dir / "test.py"
+    success, stdout, stderr = execute_in_docker(
+        code, run_poc.input_files, str(OUTPUT_DIR)
+    )
 
-    file_path.write_text(code, encoding="utf-8")
-
-    print(f"Saved script to: {file_path}")
-
-    return {"message": "Success"}
+    if success:
+        print(f"\nExecution succeeded. Output files:\n{stdout}")
+        response.status_code = 200
+        return {"message": "Success", "output_files": stdout.splitlines()}
+    else:
+        print(f"\nExecution failed with error:\n{stderr}")
+        response.status_code = 500
+        return {"message": "Execution failed", "error": stderr}
