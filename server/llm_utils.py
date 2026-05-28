@@ -112,15 +112,26 @@ def build_code_prompt(plan: dict, schemas: list[dict]) -> str:
 Pipeline plan:
 {json.dumps(plan, indent=2)}
 
+Execution environment:
+- The script runs inside an isolated sandbox container
+- The current working directory is the job workspace
+- Input files are located in ./input
+- Output files must be written to ./output
+
 Rules:
-- Read all input files from {INPUT_DIR} directory
-- Write all output files to {OUTPUT_DIR} directory
-- Use ONLY pandas, os (for paths only)
+- Use pathlib.Path for all filesystem paths
+- Read all input files ONLY from Path("./input")
+- Write all output files ONLY to Path("./output")
+- Never use absolute filesystem paths
+- Use ONLY pandas, pathlib, and os
 - Do NOT use subprocess, eval, exec, requests, socket
-- Do NOT read or write outside {INPUT_DIR} and {OUTPUT_DIR}
-- Print row counts after each major step
-- Return ONLY the Python code, no explanation
-- Python code MUST contain a __main__ module that executes the pipeline when run
+- Do NOT access files outside ./input and ./output
+- Create output directory if it does not exist
+- Print row counts after each major transformation step
+- Return ONLY valid executable Python code
+- Include:
+    if __name__ == "__main__":
+        main()
 """
 
 

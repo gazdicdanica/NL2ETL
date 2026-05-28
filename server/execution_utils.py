@@ -51,15 +51,15 @@ def execute_in_docker(code: str, input_files: list[str], output_dir: str):
         },
         network_disabled=True,
         mem_limit="512m",
-        user="1000:1000",
         detach=True,
     )
 
     result = container.wait()
     stdout = container.logs(stdout=True, stderr=False).decode()
     stderr = container.logs(stdout=False, stderr=True).decode()
-
     success = result["StatusCode"] == 0
+
+    container.remove()
 
     if success:
         Path(output_dir).mkdir(parents=True, exist_ok=True)
