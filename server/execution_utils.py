@@ -67,13 +67,12 @@ def execute_in_docker(code: str, input_files: list[str]):
         # Save the output files locally
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         for f in output_path.iterdir():
-            shutil.copy(f, OUTPUT_DIR / f.name)
+            shutil.copy(f, OUTPUT_DIR / f"{job_id}_{f.name}")
 
         # Save the generated pipeline script locally
         SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
         script_dest = SCRIPTS_DIR / f"{job_id}_pipeline.py"
         shutil.copy(script_path, script_dest)
-        print(f"Script saved to: {script_dest.resolve()}")
 
     # Cleanup the temporary job directory from shared volume
     shutil.rmtree(workdir, ignore_errors=True)
