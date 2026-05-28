@@ -109,16 +109,16 @@ def generate_plan(nl_prompt: str, schemas: list[dict]) -> dict:
 
 def build_code_prompt(plan: dict, schemas: list[dict]) -> str:
     return f"""
-Pipeline plan:
+### Pipeline plan:
 {json.dumps(plan, indent=2)}
 
-Execution environment:
+### Execution environment:
 - The script runs inside an isolated sandbox container
 - The current working directory is the job workspace
 - Input files are located in ./input
 - Output files must be written to ./output
 
-Rules:
+### Rules:
 - Use pathlib.Path for all filesystem paths
 - Read all input files ONLY from Path("./input")
 - Write all output files ONLY to Path("./output")
@@ -128,6 +128,8 @@ Rules:
 - Do NOT access files outside ./input and ./output
 - Create output directory if it does not exist
 - Print row counts after each major transformation step
+- column_mappings in the plan are for reference ONLY — they tell you which column corresponds to which user concept
+- column_mappings are NOT to be used for renaming, use actual column names from the schema
 - Return ONLY valid executable Python code
 - Include:
     if __name__ == "__main__":

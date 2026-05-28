@@ -7,7 +7,8 @@ services:
     volumes:
       - ./input:/app/input
       - ./output:/app/output
-      - ./server:/app
+      - ./scripts:/app/scripts
+      - ./server:/app/server
       - shared_data:/shared
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
@@ -15,6 +16,7 @@ services:
       - GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
       - INPUT_DIR=/app/input
       - OUTPUT_DIR=/app/output
+      - SCRIPTS_DIR=/app/scripts
       - SANDBOX_IMAGE=nl2etl_sandbox
     depends_on:
       sandbox:

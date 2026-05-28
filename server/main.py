@@ -8,8 +8,6 @@ from pathlib import Path
 
 from .llm_utils import infer_schema, generate_plan, generate_code
 
-OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", "/app/output"))
-
 app = FastAPI()
 
 
@@ -34,9 +32,7 @@ def run_poc(run_poc: RunPOC, response: Response) -> dict:
     code = generate_code(plan, schemas)
     print(f"\nGenerated code:\n{code}")
 
-    success, stdout, stderr = execute_in_docker(
-        code, run_poc.input_files, str(OUTPUT_DIR)
-    )
+    success, stdout, stderr = execute_in_docker(code, run_poc.input_files)
 
     if success:
         print(f"\nExecution succeeded. Output files:\n{stdout}")
