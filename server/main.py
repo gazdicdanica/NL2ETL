@@ -3,7 +3,7 @@ from fastapi import FastAPI, Response
 
 from .model.request import RunPOC
 
-from .llm_utils import infer_schema, generate_plan, generate_correct_script
+from .utils.llm_utils import infer_schema, generate_plan, generate_correct_script
 
 app = FastAPI()
 

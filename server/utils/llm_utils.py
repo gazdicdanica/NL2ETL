@@ -3,7 +3,9 @@ import os
 from typing import Any
 
 import pandas as pd
-from .groq import client
+
+from ..validator.ast_validator import validate_code
+from ..groq import client
 from .execution_utils import execute_in_docker
 from pathlib import Path
 
@@ -154,6 +156,11 @@ def generate_correct_script(
     code = generate_code(plan, schemas)
     print(f"\nGenerated code:\n{code}")
 
+    valid, violations = validate_code(code)
+    if not valid:
+        print(f"\nCode validation failed with violations:\n{violations}")
+        return False, "", f"Code validation failed: {violations}"
+
     success, stdout, stderr = execute_in_docker(code, input_files)
 
     if not success:
@@ -219,6 +226,12 @@ def self_correction_loop(
         )
 
         code = send_request("You are an ETL code debugger and fixer", correction_prompt)
+        valid, violations = validate_code(code)
+        if not valid:
+            print(f"Corrected code failed validation with violations:\n{violations}")
+            failing_code = code
+            error_message = f"AST code validation failed: {violations}"
+            continue
         success, stdout, stderr = execute_in_docker(
             code, [s["filename"] for s in schemas]
         )
