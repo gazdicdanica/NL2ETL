@@ -1,6 +1,7 @@
 docker
 fastapi[standard]
 groq
+minio
 openpyxl
 pandas
 pre-commit

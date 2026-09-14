@@ -23,7 +23,7 @@ User describes data transformation in natural language and includes the input fi
 Add your GROQ_API_KEY to the `.env` file in the root folder
 
 ### 2. Upload input file
-Drop a CSV or Excel file into the `input/` folder 
+Drop a CSV or Excel file into the `input/` folder
 
 ### 3. Run
 ```bash
@@ -43,6 +43,5 @@ POST http://localhost:8000
   "files": ["sales.csv"]
 }
 ```
-  - `prompt` - data transformation descritpion 
+  - `prompt` - data transformation descritpion
   - `files` - list of filenames from the `input/` folder to use as the ETL input
-

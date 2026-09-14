@@ -6,7 +6,7 @@ import pandas as pd
 
 from ..validator.ast_validator import validate_code
 from ..groq import client
-from .execution_utils import execute_in_docker
+from .execution_service import execute_in_docker
 from pathlib import Path
 
 INPUT_DIR = Path(os.environ.get("INPUT_DIR", "/app/input"))
@@ -215,11 +215,11 @@ def self_correction_loop(
     failing_code: str,
     error_message: str,
     schemas: list[dict],
-    max_interations: int = 3,
+    max_iterations: int = 3,
 ) -> tuple[bool, str, str]:
     success, stdout, stderr = False, "", ""
-    for i in range(max_interations):
-        print(f"Self-correction attempt {i+1}/{max_interations}")
+    for i in range(max_iterations):
+        print(f"Self-correction attempt {i+1}/{max_iterations}")
 
         correction_prompt = _build_correction_prompt(
             nl_prompt, plan, failing_code, error_message, schemas

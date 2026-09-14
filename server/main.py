@@ -1,9 +1,13 @@
 import json
 from fastapi import FastAPI, Response
 
-from .model.request import RunPOC
+from .service import uuid_service
 
-from .utils.llm_utils import infer_schema, generate_plan, generate_correct_script
+from .model.request import PresignRequest, RunPOC
+
+from .service.llm_service import infer_schema, generate_plan, generate_correct_script
+
+from .service.minio_service import presign_file_urls as presign
 
 app = FastAPI()
 
@@ -13,10 +17,28 @@ def read_root():
     return {"Hello": "World"}
 
 
+@app.post("/presign", status_code=200)
+def presign_file_urls(presign_request: PresignRequest, response: Response) -> dict:
+    try:
+        run_id = uuid_service.generate_run_id()
+        urls = presign(presign_request.file_names, run_id)
+
+        # TODO store uuid and urls.
+        response.status_code = 200
+        return {"message": "Success", "urls": urls}
+    except Exception as e:
+        print(f"\nUnexpected error: {str(e)}")
+        response.status_code = 500
+        return {"message": "Internal server error", "error": str(e)}
+
+
 @app.post("/", status_code=200)
 def run_poc(run_poc: RunPOC, response: Response) -> dict:
 
     try:
+
+        # TODO: implement MinIO presigning
+
         schemas = [infer_schema(f) for f in run_poc.input_files]
         print(f"Schemas inferred: {[s['filename'] for s in schemas]}")
 

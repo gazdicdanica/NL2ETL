@@ -7,3 +7,8 @@ from pydantic import BaseModel
 class RunPOC(BaseModel):
     nl_prompt: str
     input_files: list[str]
+
+
+@dataclass
+class PresignRequest(BaseModel):
+    file_names: list[str]
