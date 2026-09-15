@@ -15,8 +15,6 @@ from .minio_service import (
     upload_output_files,
 )
 
-# INPUT_DIR = Path(os.environ.get("INPUT_DIR", "/app/input"))
-OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", "/app/output"))
 GROQ_MODEL = os.environ.get("GROQ_MODEL")
 
 

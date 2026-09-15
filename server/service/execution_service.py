@@ -42,18 +42,4 @@ def execute_in_docker(code: str, run_id: str) -> tuple[bool, str, str]:
 
     container.remove()
 
-    # if success:
-    #     # Save the output files locally
-    #     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    #     for f in output_path.iterdir():
-    #         shutil.copy(f, OUTPUT_DIR / f"{run_id}_{f.name}")
-
-    #     # Save the generated pipeline script locally
-    #     SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
-    #     script_dest = SCRIPTS_DIR / f"{run_id}_pipeline.py"
-    #     shutil.copy(script_path, script_dest)
-
-    # # Cleanup the temporary job directory from shared volume
-    # shutil.rmtree(workdir, ignore_errors=True)
-
     return success, stdout, stderr
