@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 from typing import Any
 
 import pandas as pd
@@ -8,7 +9,11 @@ from ..validator.ast_validator import validate_code
 from ..groq import client
 from .execution_service import execute_in_docker
 from pathlib import Path
-from .minio_service import list_input_files, download_inputs_locally
+from .minio_service import (
+    list_input_files,
+    download_inputs_locally,
+    upload_output_files,
+)
 
 # INPUT_DIR = Path(os.environ.get("INPUT_DIR", "/app/input"))
 OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", "/app/output"))
@@ -247,9 +252,20 @@ def self_correction_loop(
             )
             continue
         success, stdout, stderr = execute_in_docker(current_code, run_id)
-        # TODO after execution, move the output files from the sandbox container's output directory to MinIO.
+
         if success:
             print(f"Code executed successfully on attempt {i+1}")
+
+            # Save the output files to MinIO
+            local_path = Path("/shared") / run_id
+            minio_path = f"jobs/{run_id}"
+            upload_output_files(
+                f"{local_path}/outputs", f"{minio_path}/outputs", run_id
+            )
+            upload_output_files(local_path, f"{minio_path}/scripts", run_id)
+
+            # cleanup
+            shutil.rmtree(local_path, ignore_errors=True)
             return success, stdout, stderr
 
         print(f"Execution failed with error:\n{stderr}")

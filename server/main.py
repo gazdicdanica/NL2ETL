@@ -21,7 +21,6 @@ def presign_file_urls(presign_request: PresignRequest, response: Response) -> di
         run_id = str(uuid.uuid4())
         urls = presign(presign_request.file_names, run_id)
 
-        # TODO store uuid and urls.
         response.status_code = 200
         return {"message": "Success", "urls": urls, "run_id": run_id}
     except Exception as e:

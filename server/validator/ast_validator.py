@@ -50,4 +50,5 @@ def validate_code(code: str) -> tuple[bool, list[str]]:
 
     if visitor.violations:
         return False, visitor.violations
+    print("\nCode validation passed. No forbidden constructs found.")
     return True, []
