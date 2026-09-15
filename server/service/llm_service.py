@@ -1,22 +1,42 @@
 import json
 import os
+import shutil
 from typing import Any
 
 import pandas as pd
 
 from ..validator.ast_validator import validate_code
 from ..groq import client
-from .execution_utils import execute_in_docker
+from .execution_service import execute_in_docker
 from pathlib import Path
+from .minio_service import (
+    list_input_files,
+    download_inputs_locally,
+    upload_output_files,
+)
 
-INPUT_DIR = Path(os.environ.get("INPUT_DIR", "/app/input"))
-OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", "/app/output"))
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL = os.environ.get("GROQ_MODEL")
 
 
-def infer_schema(filename: str) -> dict:
+def run_pipeline_generation(user_prompt: str, run_id: str) -> tuple[bool, str, str]:
+    # success, stdout, stderr
+    input_files = list_input_files(run_id)
+    download_inputs_locally(run_id, input_files)
+    schemas = [infer_schema(f, run_id) for f in input_files]
+    print(f"Schemas inferred: {[s['filename'] for s in schemas]}")
 
-    filepath = INPUT_DIR / filename
+    plan = generate_plan(user_prompt, schemas)
+    print(f"Pipeline plan:\n{json.dumps(plan, indent=2)}")
+
+    if plan.get("ambiguities"):
+        print(f"\nAmbiguities detected: {plan['ambiguities']}")
+        return  # In full system: show UI disambiguation prompt
+
+    return generate_correct_script(user_prompt, plan, schemas, run_id)
+
+
+def infer_schema(filename: str, run_id: str) -> dict:
+    filepath = Path("/shared") / run_id / "inputs" / filename
     df = pd.read_csv(filepath)
 
     return {
@@ -89,26 +109,26 @@ def generate_plan(nl_prompt: str, schemas: list[dict]) -> dict:
     return json.loads(send_request("You are an ETL pipeline planner.", prompt))
 
 
-def _build_code_prompt(plan: dict, schemas: list[dict]) -> str:
+def _build_code_prompt(plan: dict, run_id: str) -> str:
     return f"""
 ### Pipeline plan:
 {json.dumps(plan, indent=2)}
 
 ### Execution environment:
 - The script runs inside an isolated sandbox container
-- The current working directory is the job workspace
-- Input files are located in ./input
-- Output files must be written to ./output
+- The current working directory is /shared/{run_id}
+- Input files are located in ./inputs
+- Output files must be written to ./outputs
 
 ### Rules:
 - Use pathlib.Path for all filesystem paths
-- Read all input files ONLY from Path("./input")
-- Write all output files ONLY to Path("./output")
+- Read all input files ONLY from Path("./inputs")
+- Write all output files ONLY to Path("./outputs")
+- Name output files exactly as specified in the plan
 - Never use absolute filesystem paths
 - Use ONLY pandas, pathlib, and os
 - Do NOT use subprocess, eval, exec, requests, socket
-- Do NOT access files outside ./input and ./output
-- Create output directory if it does not exist
+- Do NOT access files outside /shared/{run_id}
 - Print row counts after each major transformation step
 - column_mappings in the plan are for reference ONLY — they tell you which column corresponds to which user concept
 - column_mappings are NOT to be used for renaming, use actual column names from the schema
@@ -119,8 +139,8 @@ def _build_code_prompt(plan: dict, schemas: list[dict]) -> str:
 """
 
 
-def generate_code(plan: dict, schemas: list[dict]) -> str:
-    prompt = _build_code_prompt(plan, schemas)
+def generate_code(plan: dict, run_id: str) -> str:
+    prompt = _build_code_prompt(plan, run_id)
     return send_request("You are an ETL code generator.", prompt)
 
 
@@ -151,28 +171,18 @@ def generate_code(plan: dict, schemas: list[dict]) -> str:
 
 
 def generate_correct_script(
-    nl_prompt: str, plan: dict, schemas: list[dict], input_files: list[str]
+    nl_prompt: str, plan: dict, schemas: list[dict], run_id: str
 ) -> tuple[bool, str, str]:
-    code = generate_code(plan, schemas)
-    print(f"\nGenerated code:\n{code}")
+    code = generate_code(plan, run_id)
 
-    valid, violations = validate_code(code)
-    if not valid:
-        print(f"\nCode validation failed with violations:\n{violations}")
-        return False, "", f"Code validation failed: {violations}"
+    success, stdout, stderr = self_correction_loop(
+        nl_prompt, plan, code, "Initial generation", schemas, run_id
+    )
 
-    success, stdout, stderr = execute_in_docker(code, input_files)
-
-    if not success:
-        print(f"\nExecution failed with error:\n{stderr}")
-        success, stdout, stderr = self_correction_loop(
-            nl_prompt, plan, code, stderr, schemas
-        )
-
-        if success:
-            print(f"\nCorrected code executed successfully. Output:\n{stdout}")
-        else:
-            print(f"\nSelf-correction attempts exhausted. Last error:\n{stderr}")
+    if success:
+        print(f"\nCorrected code executed successfully. Output:\n{stdout}")
+    else:
+        print(f"\nSelf-correction attempts exhausted. Last error:\n{stderr}")
 
     return success, stdout, stderr
 
@@ -185,7 +195,7 @@ def _build_correction_prompt(
     schemas: list[dict],
 ) -> str:
     return f"""### Context
-The following code was generated based on the NL prompt and plan, but it failed to execute.
+The following code was generated based on the NL prompt and plan, but it failed validation or execution.
 
 ### NL prompt:
 {nl_prompt}
@@ -203,8 +213,8 @@ The following code was generated based on the NL prompt and plan, but it failed 
 {json.dumps([s['columns'] for s in schemas], indent=2)}
 
 ### Instructions
-- Analyze the error message and identify the root cause of the failure
-- Fix the code
+- Analyze the error message and any AST validation violations to identify the root cause
+- Fix the code so it is valid, safe, and executable
 - Return ONLY the corrected code, no explanations or comments
 """
 
@@ -215,34 +225,56 @@ def self_correction_loop(
     failing_code: str,
     error_message: str,
     schemas: list[dict],
-    max_interations: int = 3,
+    run_id: str,
+    max_iterations: int = 4,
 ) -> tuple[bool, str, str]:
     success, stdout, stderr = False, "", ""
-    for i in range(max_interations):
-        print(f"Self-correction attempt {i+1}/{max_interations}")
+    current_code = failing_code
+    current_error = error_message
 
-        correction_prompt = _build_correction_prompt(
-            nl_prompt, plan, failing_code, error_message, schemas
-        )
+    for i in range(max_iterations):
+        print(f"Code-generation attempt {i+1}/{max_iterations}")
 
-        code = send_request("You are an ETL code debugger and fixer", correction_prompt)
-        valid, violations = validate_code(code)
+        valid, violations = validate_code(current_code)
         if not valid:
-            print(f"Corrected code failed validation with violations:\n{violations}")
-            failing_code = code
-            error_message = f"AST code validation failed: {violations}"
+            violation_text = (
+                "; ".join(violations) if violations else "unknown validation issue"
+            )
+            print(f"AST validation failed with violations:\n{violations}")
+            current_error = f"AST validation failed: {violation_text}"
+            correction_prompt = _build_correction_prompt(
+                nl_prompt, plan, current_code, current_error, schemas
+            )
+            current_code = send_request(
+                "You are an ETL code debugger and fixer", correction_prompt
+            )
             continue
-        success, stdout, stderr = execute_in_docker(
-            code, [s["filename"] for s in schemas]
-        )
-        if success:
-            print("Code executed successfully after correction.")
-            return success, stdout, stderr
-        else:
-            print(f"Correction attempt {i+1} failed with error:\n{stderr}")
-            failing_code = code
-            error_message = stderr
+        success, stdout, stderr = execute_in_docker(current_code, run_id)
 
+        if success:
+            print(f"Code executed successfully on attempt {i+1}")
+
+            # Save the output files to MinIO
+            local_path = Path("/shared") / run_id
+            minio_path = f"jobs/{run_id}"
+            upload_output_files(
+                f"{local_path}/outputs", f"{minio_path}/outputs", run_id
+            )
+            upload_output_files(local_path, f"{minio_path}/scripts", run_id)
+
+            # cleanup
+            shutil.rmtree(local_path, ignore_errors=True)
+            return success, stdout, stderr
+
+        print(f"Execution failed with error:\n{stderr}")
+        current_error = stderr
+        correction_prompt = _build_correction_prompt(
+            nl_prompt, plan, current_code, current_error, schemas
+        )
+        current_code = send_request(
+            "You are an ETL code debugger and fixer", correction_prompt
+        )
+    # TODO after max iterations, save the last failing code and error message to MinIO for further analysis.
     print(
         "Max self-correction attempts reached. Returning last attempt's code and error."
     )
