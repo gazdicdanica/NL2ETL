@@ -1,4 +1,5 @@
 from datetime import timedelta
+from pathlib import Path
 
 from dotenv import load_dotenv
 from minio import Minio, S3Error
@@ -15,29 +16,33 @@ client = Minio(
 bucket_name = os.environ.get("MINIO_BUCKET")
 
 
-# def upload_file():
-#     try:
-#         found = client.bucket_exists(bucket_name)
-#         if not found:
-#             client.make_bucket(bucket_name)
-#             print("Created bucket", bucket_name)
-#         else:
-#             print("Bucket", bucket_name, "already exists")
-
-#         # Upload the file, renaming it in the process
-#         client.fput_object(
-#             bucket_name, destination_file, source_file,
-#         )
-#         print(
-#             source_file, "successfully uploaded as object",
-#             destination_file, "to bucket", bucket_name,
-#         )
-#     except S3Error as e:
-#         print("Error occurred while uploading file:", e)
-#         raise e
+def download_inputs_locally(run_id: str, filenames: list[str]) -> None:
+    try:
+        for filename in filenames:
+            object_name = f"jobs/{run_id}/inputs/{filename}"
+            input_path = Path("/shared") / run_id / "inputs"
+            input_path.mkdir(parents=True, exist_ok=True)
+            local_path = input_path / filename
+            client.fget_object(bucket_name, object_name, str(local_path))
+            print(f"\nDownloaded {object_name} to {local_path}")
+    except Exception as e:
+        print(f"\nError occurred while downloading input files: {str(e)}")
+        raise e
 
 
-def ensure_bucket_exists():
+def list_input_files(run_id: str) -> list[str]:
+    try:
+        prefix = f"jobs/{run_id}/inputs/"
+        objects = client.list_objects(bucket_name, prefix=prefix, recursive=True)
+        file_list = [obj.object_name.replace(prefix, "") for obj in objects]
+        print(f"\nInput files for run_id {run_id}: {file_list}")
+        return file_list
+    except Exception as e:
+        print(f"\nError occurred while listing input files: {str(e)}")
+        raise e
+
+
+def ensure_bucket_exists() -> None:
     try:
         found = client.bucket_exists(bucket_name)
         if not found:

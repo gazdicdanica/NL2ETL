@@ -1,11 +1,9 @@
 import json
+import uuid
 from fastapi import FastAPI, Response
-
-from .service import uuid_service
-
 from .model.request import PresignRequest, RunPOC
 
-from .service.llm_service import infer_schema, generate_plan, generate_correct_script
+from .service.llm_service import run_pipeline_generation
 
 from .service.minio_service import presign_file_urls as presign
 
@@ -20,37 +18,24 @@ def read_root():
 @app.post("/presign", status_code=200)
 def presign_file_urls(presign_request: PresignRequest, response: Response) -> dict:
     try:
-        run_id = uuid_service.generate_run_id()
+        run_id = str(uuid.uuid4())
         urls = presign(presign_request.file_names, run_id)
 
         # TODO store uuid and urls.
         response.status_code = 200
-        return {"message": "Success", "urls": urls}
+        return {"message": "Success", "urls": urls, "run_id": run_id}
     except Exception as e:
         print(f"\nUnexpected error: {str(e)}")
         response.status_code = 500
         return {"message": "Internal server error", "error": str(e)}
 
 
-@app.post("/", status_code=200)
+@app.post("/run", status_code=200)
 def run_poc(run_poc: RunPOC, response: Response) -> dict:
 
     try:
-
-        # TODO: implement MinIO presigning
-
-        schemas = [infer_schema(f) for f in run_poc.input_files]
-        print(f"Schemas inferred: {[s['filename'] for s in schemas]}")
-
-        plan = generate_plan(run_poc.nl_prompt, schemas)
-        print(f"Pipeline plan:\n{json.dumps(plan, indent=2)}")
-
-        if plan.get("ambiguities"):
-            print(f"\nAmbiguities detected: {plan['ambiguities']}")
-            return  # In full system: show UI disambiguation prompt
-
-        success, stdout, stderr = generate_correct_script(
-            run_poc.nl_prompt, plan, schemas, run_poc.input_files
+        success, stdout, stderr = run_pipeline_generation(
+            run_poc.nl_prompt, run_poc.run_id
         )
 
         if success:
