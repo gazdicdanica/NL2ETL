@@ -14,6 +14,7 @@ from .minio_service import (
     download_inputs_locally,
     upload_output_files,
 )
+from .job_service import append_attempt, add_output, set_status, read_meta
 
 GROQ_MODEL = os.environ.get("GROQ_MODEL")
 
@@ -242,6 +243,18 @@ def self_correction_loop(
             )
             print(f"AST validation failed with violations:\n{violations}")
             current_error = f"AST validation failed: {violation_text}"
+            # record attempt as failed validation
+            attempt_record = {
+                "attempt_index": i + 1,
+                "state": "failed",
+                "error_summary": current_error,
+                "script_path": None,
+                "timestamp": None,
+            }
+            try:
+                append_attempt(run_id, attempt_record)
+            except Exception:
+                pass
             correction_prompt = _build_correction_prompt(
                 nl_prompt, plan, current_code, current_error, schemas
             )
@@ -254,7 +267,6 @@ def self_correction_loop(
         if success:
             print(f"Code executed successfully on attempt {i+1}")
 
-            # Save the output files to MinIO
             local_path = Path("/shared") / run_id
             minio_path = f"jobs/{run_id}"
             upload_output_files(
@@ -262,12 +274,41 @@ def self_correction_loop(
             )
             upload_output_files(local_path, f"{minio_path}/scripts", run_id)
 
-            # cleanup
+            script_path = f"{minio_path}/scripts/pipeline.py"
+            attempt_record = {
+                "attempt_index": i + 1,
+                "state": "succeeded",
+                "error_summary": None,
+                "script_path": script_path,
+                "timestamp": None,
+            }
+            try:
+                append_attempt(run_id, attempt_record)
+                for out in sorted((local_path / "outputs").iterdir()):
+                    if out.is_file():
+                        add_output(run_id, {"path": f"{minio_path}/outputs/{out.name}"})
+                set_status(run_id, "succeeded")
+            except Exception:
+                pass
+
             shutil.rmtree(local_path, ignore_errors=True)
             return success, stdout, stderr
 
         print(f"Execution failed with error:\n{stderr}")
         current_error = stderr
+        # record failed attempt
+        attempt_record = {
+            "attempt_index": i + 1,
+            "state": "failed",
+            "error_summary": current_error,
+            "script_path": None,
+            "timestamp": None,
+        }
+        try:
+            append_attempt(run_id, attempt_record)
+            set_status(run_id, "running")
+        except Exception:
+            pass
         correction_prompt = _build_correction_prompt(
             nl_prompt, plan, current_code, current_error, schemas
         )

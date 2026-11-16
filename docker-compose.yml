@@ -42,6 +42,20 @@ services:
     networks:
       - nl2etl-network
 
+  streamlit:
+    build:
+      context: ./client
+      no_cache: true
+    container_name: nl2etl_streamlit
+    ports:
+      - "8501:8501"
+    environment:
+      - API_BASE_URL=http://app:8000
+    depends_on:
+      - app
+    networks:
+      - nl2etl-network
+
   postgresql:
     image: postgres:latest
     container_name: postgresql

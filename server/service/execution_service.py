@@ -5,10 +5,20 @@ import docker
 
 SANDBOX_IMAGE = os.environ.get("SANDBOX_IMAGE", "nl2etl_sandbox")
 
-client = docker.from_env()
+try:
+    client = docker.from_env()
+except Exception as exc:  # pragma: no cover - depends on local Docker availability
+    client = None
+    DOCKER_INIT_ERROR = exc
+else:
+    DOCKER_INIT_ERROR = None
 
 
 def execute_in_docker(code: str, run_id: str) -> tuple[bool, str, str]:
+    if client is None:
+        raise RuntimeError(
+            "Docker is not available. Start the Docker daemon before running a pipeline."
+        ) from DOCKER_INIT_ERROR
 
     workdir = Path("/shared") / run_id
     output_path = workdir / "outputs"
