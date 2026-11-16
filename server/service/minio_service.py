@@ -6,6 +6,9 @@ from os.path import isfile, join
 from dotenv import load_dotenv
 from minio import Minio, S3Error
 import os
+import json
+import io
+from datetime import datetime
 
 load_dotenv()
 client = Minio(
@@ -74,7 +77,8 @@ def presign_file_urls(filenames: list[str], run_id: str) -> list[str]:
     try:
         ensure_bucket_exists()
         urls = []
-        for filename in filenames:
+        for file in filenames:
+            filename = Path(file).name  # Extract the base filename
             try:
                 url = client.presigned_put_object(
                     bucket_name,
@@ -82,10 +86,61 @@ def presign_file_urls(filenames: list[str], run_id: str) -> list[str]:
                     expires=timedelta(minutes=10),
                 )
                 print(f"\nCreated presigned URL for {filename}:\n{url}")
-                urls.append(url)
+
+                urls.append({"path": url, "filename": file})
             except Exception as e:
                 print(f"\nError occurred while presigning URL for {filename}: {str(e)}")
         return urls
     except Exception as e:
         print(f"\nError occurred while presigning file URLs: {str(e)}")
+        raise e
+
+
+def presigned_get_object(object_name: str, expiry_minutes: int = 10) -> str:
+    """Return a presigned GET URL for an object in the jobs/ namespace."""
+    try:
+        ensure_bucket_exists()
+        url = client.presigned_get_object(
+            bucket_name,
+            object_name,
+            expires=timedelta(minutes=expiry_minutes),
+        )
+        print(f"\nCreated presigned GET URL for {object_name}: {url}")
+        return url
+    except Exception as e:
+        print(f"\nError occurred while creating presigned GET for {object_name}: {e}")
+        raise e
+
+
+def write_meta_json(run_id: str, meta: dict) -> None:
+    """Write job metadata JSON to jobs/{run_id}/meta.json in the bucket."""
+    try:
+        ensure_bucket_exists()
+        object_name = f"jobs/{run_id}/meta.json"
+        data = json.dumps(meta, default=str).encode("utf-8")
+        data_stream = io.BytesIO(data)
+        client.put_object(bucket_name, object_name, data_stream, length=len(data))
+        print(f"\nWrote meta.json for run {run_id}")
+    except Exception as e:
+        print(f"\nError occurred while writing meta.json: {e}")
+        raise e
+
+
+def read_meta_json(run_id: str) -> dict | None:
+    """Read job metadata JSON from jobs/{run_id}/meta.json. Returns dict or None if not found."""
+    try:
+        object_name = f"jobs/{run_id}/meta.json"
+        response = client.get_object(bucket_name, object_name)
+        data = response.read()
+        response.close()
+        response.release_conn()
+        meta = json.loads(data.decode("utf-8"))
+        print(f"\nRead meta.json for run {run_id}")
+        return meta
+    except S3Error as e:
+        # If not found, return None
+        print(f"\nS3Error reading meta.json for run {run_id}: {e}")
+        return None
+    except Exception as e:
+        print(f"\nError occurred while reading meta.json: {e}")
         raise e

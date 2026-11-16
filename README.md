@@ -4,44 +4,64 @@
 ---
 
 ## Functionalities
-User describes data transformation in natural language and includes the input files.
+User describes a data transformation in natural language and uploads source files.
 
 1. **Schema inference** - reads the input file and extracts column names, types and sample values
-2. **Plan generation** - maps the users intebt to exact column names via a schema-aware LLM call, returning a structured JSON pipeline plan
-3. **Code generation** - converts the JSON plan into a Python/Pandas script
+2. **Plan generation** - maps user intent to exact column names via a schema-aware LLM call
+3. **Code generation** - converts the pipeline plan into a Python/Pandas script
 4. **AST validation** — scans the generated code for dangerous operations before anything runs
 5. **Sandboxed execution** — runs the generated script in an isolated Docker container
-6. **Self-correction loop** — if execution fails, feeds the error back to the LLM and retries (up to N=3 times)
+6. **Self-correction loop** — if execution fails, feeds the error back to the LLM and retries
+7. **Async job tracking** — stores minimal metadata in MinIO so the client can poll status and download outputs
 
 ---
 
 ### Prerequisites
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker + Docker Compose on Linux)
-- [Groq API key](https://console.groq.com) => free
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) or Docker Compose on Linux
+- [Groq API key](https://console.groq.com)
 
 ### 1. Configure environment
-Add your GROQ_API_KEY to the `.env` file in the root folder
+Create a `.env` file in the project root with at least:
+```bash
+GROQ_API_KEY=your_key_here
+GROQ_MODEL=openai/gpt-oss-120b
+MINIO_ROOT_USER=minioadmin
+MINIO_ROOT_PASSWORD=minioadmin
+MINIO_HOST=host.docker.internal:9000
+MINIO_BUCKET=nl2etl
+```
 
-### 2. Upload input file
-Drop a CSV or Excel file into the `input/` folder
-
-### 3. Run
+### 2. Run the stack
 ```bash
 docker compose up --build
 ```
 
-### 4. Execute
-The server exposes a POST endpoint at:
-```
-POST http://localhost:8000
-```
+This starts:
+- FastAPI backend on http://localhost:8000
+- Streamlit client on http://localhost:8501
+- MinIO on http://localhost:9000
+- Docker sandbox image for isolated execution
 
-**Request body:**
+### 3. Use the Streamlit client
+Open http://localhost:8501 and:
+1. Enter the transformation prompt
+2. Upload one or more input files
+3. Click "Run pipeline"
+4. Watch status updates and inspect each attempt in the collapsible sections
+5. Download the produced output files from the generated presigned GET URLs
+
+### 4. Server API flow
+The backend supports the following flow:
+- POST /presign -> returns upload URLs and a run_id
+- PUT uploaded files to the returned presigned URLs
+- POST /run -> returns 202 Accepted immediately and starts processing in the background
+- GET /pipelines/{run_id} -> poll job status and attempts
+- POST /presign-get -> returns short-lived download URLs for finished outputs
+
+Example request:
 ```json
 {
-  "prompt": "Calculate total revenue by region and export to Excel",
-  "files": ["sales.csv"]
+  "nl_prompt": "Calculate total revenue by region and export to CSV",
+  "run_id": "123e4567-e89b-12d3-a456-426614174000"
 }
 ```
-  - `prompt` - data transformation descritpion
-  - `files` - list of filenames from the `input/` folder to use as the ETL input
